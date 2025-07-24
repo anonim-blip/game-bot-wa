@@ -151,17 +151,27 @@ async function startBot() {
     }
   })
 
-  // Health check untuk Railway
-  const express = require('express')
-  const app = express()
-  app.get('/', (req, res) => res.send('WA Bot Running!'))
+
   
-  // ⬇️ CHANGE THIS LINE ⬇️
-   const express = require('express')
-  const app = express()
-  app.get('/', (req, res) => res.send('WA Bot Running!'))
-  app.listen(process.env.PORT || 3000, '0.0.0.0')  // Changed line
-}
+// Health check untuk Railway
+const express = require('express')
+const app = express()
+app.get('/', (req, res) => res.send('WA Bot Running!'))
+
+const PORT = process.env.PORT || 3000
+const HOST = '0.0.0.0'
+
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Server running on http://${HOST}:${PORT}`)
+})
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    const newPort = parseInt(PORT) + 1
+    console.error(`Port ${PORT} sedang digunakan, mencoba port ${newPort}...`)
+    app.listen(newPort, HOST)
+  }
+})
 
 // Database functions
 async function loadDB() {
