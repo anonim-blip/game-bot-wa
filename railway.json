@@ -1,0 +1,18 @@
+{
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@railway/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/",
+      "dest": "/"
+    }
+  ],
+  "variables": {
+    "PORT": "3000",
+    "NODE_ENV": "production"
+  }
+}
