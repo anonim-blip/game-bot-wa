@@ -1,12 +1,15 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys')
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion, delay } = require('@whiskeysockets/baileys')
 const fs = require('fs-extra')
 const path = require('path')
 
+// Database
 const DB_PATH = './database.json'
+const COOLDOWN = 5000 // 5 detik
 
+// Inisialisasi
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('session')
-  const { version, isLatest } = await fetchLatestBaileysVersion()
+  const { version } = await fetchLatestBaileysVersion()
 
   const sock = makeWASocket({
     version,
@@ -14,12 +17,15 @@ async function startBot() {
     printQRInTerminal: true,
   })
 
+  // Simpan session
   sock.ev.on('creds.update', saveCreds)
 
+  // Handle koneksi
   sock.ev.on('connection.update', ({ connection, lastDisconnect }) => {
     if (connection === 'close') {
       const reason = lastDisconnect?.error?.output?.statusCode
       if (reason !== DisconnectReason.loggedOut) {
+        console.log('Reconnecting...')
         startBot()
       }
     } else if (connection === 'open') {
@@ -27,40 +33,134 @@ async function startBot() {
     }
   })
 
+  // Cooldown tracker
+  const lastCommand = {}
+
+  // Handle pesan
   sock.ev.on('messages.upsert', async ({ messages }) => {
     const msg = messages[0]
     if (!msg.message || msg.key.fromMe) return
 
     const sender = msg.key.remoteJid
-    const text = msg.message.conversation || msg.message.extendedTextMessage?.text
+    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || ''
+    const now = Date.now()
 
-    if (!text) return
+    // Anti spam
+    if (lastCommand[sender] && now - lastCommand[sender] < COOLDOWN) {
+      await sock.sendMessage(sender, { text: '⏳ Tunggu 5 detik sebelum command lagi!' })
+      return
+    }
+    lastCommand[sender] = now
 
-    if (text.toLowerCase() === 'score') {
-      const db = await loadDB()
-      const score = db[sender] || 0
-      await sock.sendMessage(sender, { text: `🎯 Skor kamu: ${score}` })
-    } else if (text.toLowerCase().startsWith('tambah')) {
-      const point = parseInt(text.split(' ')[1])
-      if (isNaN(point)) return sock.sendMessage(sender, { text: '❌ Format salah. Contoh: tambah 5' })
+    // Load database
+    const db = await loadDB()
+    if (!db.users) db.users = {}
 
-      const db = await loadDB()
-      db[sender] = (db[sender] || 0) + point
-      await saveDB(db)
+    // Command handler
+    const cmd = text.toLowerCase().split(' ')[0]
+    const args = text.split(' ').slice(1)
 
-      await sock.sendMessage(sender, { text: `✅ Skor kamu sekarang: ${db[sender]}` })
-    } else if (text.toLowerCase() === 'leaderboard') {
-      const db = await loadDB()
-      const sorted = Object.entries(db).sort((a, b) => b[1] - a[1])
-      const board = sorted.map(([id, score], i) => `${i + 1}. ${id.split('@')[0]}: ${score}`).slice(0, 5).join('\n')
-      await sock.sendMessage(sender, { text: `🏆 Leaderboard:\n${board}` })
+    try {
+      switch (cmd) {
+        case 'score':
+          const score = db.users[sender]?.score || 0
+          await sock.sendMessage(sender, { text: `🎯 Skor kamu: ${score}` })
+          break
+
+        case 'tambah':
+          const point = parseInt(args[0])
+          if (isNaN(point)) throw 'Format: tambah <angka>'
+          
+          db.users[sender] = db.users[sender] || { score: 0 }
+          db.users[sender].score += point
+          await saveDB(db)
+          
+          await sock.sendMessage(sender, { text: `✅ Ditambah ${point}! Skor sekarang: ${db.users[sender].score}` })
+          break
+
+        case 'leaderboard':
+          const users = Object.entries(db.users)
+            .sort((a, b) => b[1].score - a[1].score)
+            .slice(0, 5)
+          
+          let board = '🏆 Top 5 Leaderboard:\n'
+          for (const [i, [jid, data]] of users.entries()) {
+            const name = (await sock.onWhatsApp(jid))[0]?.verifiedName || jid.split('@')[0]
+            board += `${i + 1}. ${name}: ${data.score}\n`
+          }
+          await sock.sendMessage(sender, { text: board })
+          break
+
+        case 'tebak':
+          const number = Math.floor(Math.random() * 10) + 1
+          const guess = parseInt(args[0])
+          
+          if (isNaN(guess)) throw 'Format: tebak <1-10>'
+          if (guess === number) {
+            db.users[sender] = db.users[sender] || { score: 0 }
+            db.users[sender].score += 3
+            await saveDB(db)
+            await sock.sendMessage(sender, { text: `🎉 Benar! Angkanya ${number}. +3 poin!` })
+          } else {
+            await sock.sendMessage(sender, { text: `❌ Salah! Angkanya ${number}. Coba lagi!` })
+          }
+          break
+
+        case 'suit':
+          const choices = ['batu', 'gunting', 'kertas']
+          const botChoice = choices[Math.floor(Math.random() * 3)]
+          const userChoice = args[0]?.toLowerCase()
+          
+          if (!choices.includes(userChoice)) throw 'Pilih: batu/gunting/kertas'
+          
+          let result
+          if (userChoice === botChoice) {
+            result = 'Seri!'
+          } else if (
+            (userChoice === 'batu' && botChoice === 'gunting') ||
+            (userChoice === 'gunting' && botChoice === 'kertas') ||
+            (userChoice === 'kertas' && botChoice === 'batu')
+          ) {
+            db.users[sender] = db.users[sender] || { score: 0 }
+            db.users[sender].score += 5
+            await saveDB(db)
+            result = `Kamu menang! +5 poin!`
+          } else {
+            result = 'Kamu kalah!'
+          }
+          
+          await sock.sendMessage(sender, { 
+            text: `✌️ Kamu: ${userChoice}\n🤖 Bot: ${botChoice}\n\n${result}` 
+          })
+          break
+
+        default:
+          if (text) {
+            await sock.sendMessage(sender, { 
+              text: `🕹️ Game Bot\n\n` +
+                    `• score - Cek skor\n` +
+                    `• tambah <angka> - Tambah poin\n` +
+                    `• leaderboard - Top 5 pemain\n` +
+                    `• tebak <1-10> - Tebak angka\n` +
+                    `• suit <batu/gunting/kertas> - Main suit\n`
+            })
+          }
+      }
+    } catch (err) {
+      await sock.sendMessage(sender, { text: `❌ Error: ${err}` })
     }
   })
+
+  // Health check untuk Railway
+  const express = require('express')
+  const app = express()
+  app.get('/', (req, res) => res.send('WA Bot Running!'))
+  app.listen(process.env.PORT || 3000)
 }
 
+// Database functions
 async function loadDB() {
-  if (!fs.existsSync(DB_PATH)) return {}
-  return JSON.parse(fs.readFileSync(DB_PATH))
+  return fs.existsSync(DB_PATH) ? JSON.parse(fs.readFileSync(DB_PATH)) : { users: {} }
 }
 
 async function saveDB(data) {
