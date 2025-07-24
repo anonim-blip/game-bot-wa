@@ -154,24 +154,33 @@ async function startBot() {
 
   
 // Health check untuk Railway
-const express = require('express')
-const app = express()
-app.get('/', (req, res) => res.send('WA Bot Running!'))
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const PORT = process.env.PORT || 3000
-const HOST = '0.0.0.0'
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'running',
+    message: 'WhatsApp Game Bot Active'
+  });
+});
 
-const server = app.listen(PORT, HOST, () => {
-  console.log(`Server running on http://${HOST}:${PORT}`)
-})
+const startServer = () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log(`✅ Server ready on port ${PORT}`);
+  });
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    const newPort = parseInt(PORT) + 1
-    console.error(`Port ${PORT} sedang digunakan, mencoba port ${newPort}...`)
-    app.listen(newPort, HOST)
-  }
-})
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.log(`⚠️ Port ${PORT} busy, trying ${PORT + 1}`);
+      setTimeout(() => {
+        app.listen(PORT + 1, '0.0.0.0');
+      }, 1000);
+    }
+  });
+};
+
+startServer();
 
 // Database functions
 async function loadDB() {
