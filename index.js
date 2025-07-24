@@ -155,7 +155,12 @@ async function startBot() {
   const express = require('express')
   const app = express()
   app.get('/', (req, res) => res.send('WA Bot Running!'))
-  app.listen(process.env.PORT || 3000)
+  
+  // ⬇️ CHANGE THIS LINE ⬇️
+   const express = require('express')
+  const app = express()
+  app.get('/', (req, res) => res.send('WA Bot Running!'))
+  app.listen(process.env.PORT || 3000, '0.0.0.0')  // Changed line
 }
 
 // Database functions
