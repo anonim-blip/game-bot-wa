@@ -1,16 +1,15 @@
 {
-  "builds": [
-    {
-      "src": "index.js",
-      "use": "@railway/node"
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "NIXPACKS",
+    "uses": "@railway/node"
+  },
+  "deploy": {
+    "startCommand": "npm start",
+    "restartPolicy": {
+      "maxRetries": 3
     }
-  ],
-  "routes": [
-    {
-      "src": "/",
-      "dest": "/"
-    }
-  ],
+  },
   "variables": {
     "PORT": "3000",
     "NODE_ENV": "production"
